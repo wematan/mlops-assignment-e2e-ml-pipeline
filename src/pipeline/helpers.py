@@ -176,7 +176,7 @@ def run_swebench_eval(config: dict[str, Any], preds_path: Path, run_dir: Path):
     dataset_name = str(config["dataset_name"])
     max_workers = str(config["workers"])
     cmd = [
-        "python", "-m", "swebench.harness.run_evaluation",
+        "uv ", "run", "python", "-m", "swebench.harness.run_evaluation",
         "--dataset_name", dataset_name,
         "--predictions_path", str(preds_path.resolve()),
         "--max_workers", max_workers,
