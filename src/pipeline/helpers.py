@@ -3,6 +3,7 @@ import os
 import hashlib
 import shutil
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -226,36 +227,65 @@ def collect_metrics(eval_dir: Path):
 
 def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any], artifact_uri: str):
     """Log run to MLflow."""
+    def _log_with_mlflow_module(mlflow_module):
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+        if tracking_uri:
+            mlflow_module.set_tracking_uri(tracking_uri)
+
+        mlflow_module.set_experiment("swe-bench-eval")
+        with mlflow_module.start_run(run_name=run_id):
+            mlflow_module.log_params(
+                {
+                    "split": config["split"],
+                    "subset": config["subset"],
+                    "workers": config["workers"],
+                    "model": config["model"],
+                    "task_slice": config.get("task_slice") or "",
+                    "cost_limit": config["cost_limit"],
+                    "dataset_name": config["dataset_name"],
+                }
+            )
+            mlflow_module.log_metrics(
+                {
+                    "resolved": metrics["resolved"],
+                    "completed": metrics["completed"],
+                    "total": metrics["total"],
+                    "pass_rate": metrics["pass_rate"],
+                }
+            )
+            mlflow_module.set_tag("run_id", run_id)
+            artifact_path = Path(artifact_uri)
+            if artifact_path.is_dir():
+                mlflow_module.log_artifacts(str(artifact_path), artifact_path="run")
+            elif artifact_path.exists():
+                mlflow_module.log_artifact(str(artifact_path))
+
     try:
         import mlflow
 
-        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-        if tracking_uri:
-            mlflow.set_tracking_uri(tracking_uri)
-
-        mlflow.set_experiment("swe-bench-eval")
-        with mlflow.start_run(run_name=run_id):
-            mlflow.log_params({
-                "split": config["split"],
-                "subset": config["subset"],
-                "workers": config["workers"],
-                "model": config["model"],
-                "task_slice": config.get("task_slice") or "",
-                "cost_limit": config["cost_limit"],
-                "dataset_name": config["dataset_name"],
-            })
-            mlflow.log_metrics({
-                "resolved": metrics["resolved"],
-                "completed": metrics["completed"],
-                "total": metrics["total"],
-                "pass_rate": metrics["pass_rate"],
-            })
-            mlflow.set_tag("run_id", run_id)
-            artifact_path = Path(artifact_uri)
-            if artifact_path.is_dir():
-                mlflow.log_artifacts(str(artifact_path), artifact_path="run")
-            elif artifact_path.exists():
-                mlflow.log_artifact(str(artifact_path))
+        _log_with_mlflow_module(mlflow)
     except ImportError:
-        print("MLflow not available")
+        print("MLflow not available in Airflow environment, retrying via uv run...")
+        payload = {
+            "run_id": run_id,
+            "config": config,
+            "metrics": metrics,
+            "artifact_uri": artifact_uri,
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fp:
+            json.dump(payload, fp)
+            payload_path = Path(fp.name)
+
+        cmd = [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "src.pipeline.mlflow_runner",
+            str(payload_path),
+        ]
+        result = subprocess.run(cmd, env=os.environ.copy(), cwd=PROJECT_ROOT)
+        payload_path.unlink(missing_ok=True)
+        if result.returncode != 0:
+            print("MLflow logging fallback failed")
 
