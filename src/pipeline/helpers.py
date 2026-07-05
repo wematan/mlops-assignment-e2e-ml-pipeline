@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -32,9 +33,48 @@ def _find_eval_summary(eval_dir):
     return None
 
 
+def _candidate_agent_config_paths():
+    env_override = os.environ.get("MINISWEAGENT_BENCHMARK_CONFIG")
+    if env_override:
+        yield Path(env_override).expanduser()
+
+    yield PROJECT_ROOT.parent / "mini-swe-agent" / "src" / "minisweagent" / "config" / "benchmarks" / "swebench.yaml"
+    yield PROJECT_ROOT / "mini-swe-agent" / "src" / "minisweagent" / "config" / "benchmarks" / "swebench.yaml"
+
+    try:
+        import minisweagent.config as minisweagent_config
+
+        yield Path(minisweagent_config.__file__).resolve().parent / "benchmarks" / "swebench.yaml"
+    except ImportError:
+        pass
+
+
+def resolve_agent_config_path():
+    candidates = []
+    for candidate in _candidate_agent_config_paths():
+        resolved = candidate.resolve(strict=False)
+        candidates.append(resolved)
+        if resolved.exists():
+            return resolved
+
+    raise FileNotFoundError(
+        "Could not find swebench.yaml for mini-swe-agent. "
+        f"Checked: {candidates}. Expected the README layout with ../mini-swe-agent, "
+        "or set MINISWEAGENT_BENCHMARK_CONFIG explicitly."
+    )
+
+
+def _as_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def build_run_config(params):
     """Build config dict from Airflow params."""
-    config = {
+    agent_config_path = resolve_agent_config_path()
+    config: dict[str, Any] = {
         "split": str(params.get("split", "test")),
         "subset": str(params.get("subset", "verified")),
         "workers": int(params.get("workers", 4)),
@@ -42,12 +82,13 @@ def build_run_config(params):
         "task_slice": _normalize_optional(params.get("task_slice")),
         "cost_limit": str(params.get("cost_limit", "0")),
         "dataset_name": _dataset_name_for_subset(params.get("subset", "verified")),
+        "agent_config_path": str(agent_config_path),
         "timestamp": datetime.now().isoformat(),
     }
     return config
 
 
-def generate_run_id(config):
+def generate_run_id(config: dict[str, Any]):
     """Generate unique run ID from model and timestamp."""
     model_short = config["model"].replace("/", "__")[:20]
     ts = datetime.fromisoformat(config["timestamp"]).strftime("%Y%m%d_%H%M%S")
@@ -55,7 +96,7 @@ def generate_run_id(config):
     return f"{ts}_{model_short}_{model_hash}"
 
 
-def prepare_run_dir(run_id, config):
+def prepare_run_dir(run_id: str, config: dict[str, Any]):
     """Create run directory and save config."""
     run_dir = RUNS_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -71,11 +112,12 @@ def prepare_run_dir(run_id, config):
     return run_dir
 
 
-def run_agent_batch(config, run_dir):
+def run_agent_batch(config: dict[str, Any], run_dir: Path):
     """Run mini-swe-agent batch with checkpointing."""
     agent_dir = run_dir / "run-agent"
     preds_file = agent_dir / "preds.json"
     trajectories_dir = agent_dir / "trajectories"
+    config_path = Path(config["agent_config_path"])
 
     if preds_file.exists() and any(trajectories_dir.iterdir()):
         print("Agent output exists, skipping")
@@ -86,7 +128,7 @@ def run_agent_batch(config, run_dir):
         "--subset", config["subset"],
         "--split", config["split"],
         "--model", config["model"],
-        "--config", "mini-swe-agent/src/minisweagent/config/benchmarks/swebench.yaml",
+        "--config", str(config_path),
         "--workers", str(config["workers"]),
         "-o", str(trajectories_dir),
     ]
@@ -121,7 +163,7 @@ def run_agent_batch(config, run_dir):
     return agent_dir
 
 
-def run_swebench_eval(config, preds_path, run_dir):
+def run_swebench_eval(config: dict[str, Any], preds_path: Path, run_dir: Path):
     """Run SWE-bench evaluation with checkpointing."""
     eval_dir = run_dir / "run-eval"
     summary_path = _find_eval_summary(eval_dir)
@@ -131,11 +173,13 @@ def run_swebench_eval(config, preds_path, run_dir):
         return eval_dir
 
     run_id = run_dir.name
+    dataset_name = str(config["dataset_name"])
+    max_workers = str(config["workers"])
     cmd = [
         "python", "-m", "swebench.harness.run_evaluation",
-        "--dataset_name", config["dataset_name"],
+        "--dataset_name", dataset_name,
         "--predictions_path", str(preds_path.resolve()),
-        "--max_workers", str(config["workers"]),
+        "--max_workers", max_workers,
         "--run_id", run_id,
     ]
 
@@ -150,9 +194,9 @@ def run_swebench_eval(config, preds_path, run_dir):
     return eval_dir
 
 
-def collect_metrics(eval_dir):
+def collect_metrics(eval_dir: Path):
     """Parse evaluation reports and extract metrics."""
-    metrics = {
+    metrics: dict[str, Any] = {
         "resolved": 0,
         "completed": 0,
         "total": 0,
@@ -168,9 +212,9 @@ def collect_metrics(eval_dir):
         with open(summary_path) as f:
             report = json.load(f)
         if isinstance(report, dict):
-            metrics["total"] = report.get("total_instances", 0)
-            metrics["completed"] = report.get("completed_instances", 0)
-            metrics["resolved"] = report.get("resolved_instances", 0)
+            metrics["total"] = _as_int(report.get("total_instances", 0))
+            metrics["completed"] = _as_int(report.get("completed_instances", 0))
+            metrics["resolved"] = _as_int(report.get("resolved_instances", 0))
             if metrics["completed"] > 0:
                 metrics["pass_rate"] = metrics["resolved"] / metrics["completed"]
             metrics["summary_path"] = str(summary_path)
@@ -180,7 +224,7 @@ def collect_metrics(eval_dir):
     return metrics
 
 
-def log_mlflow_run(run_id, config, metrics, artifact_uri):
+def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any], artifact_uri: str):
     """Log run to MLflow."""
     try:
         import mlflow

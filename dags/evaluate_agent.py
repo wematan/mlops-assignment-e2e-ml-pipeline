@@ -5,6 +5,7 @@ from pathlib import Path
 
 try:
     from airflow.decorators import dag, task
+    from airflow.operators.python import get_current_context
     AIRFLOW_AVAILABLE = True
 except ImportError:  # local lint/test fallback
     AIRFLOW_AVAILABLE = False
@@ -22,6 +23,9 @@ except ImportError:  # local lint/test fallback
 
             return decorator
         return func
+
+    def get_current_context():
+        return {"params": {}, "dag_run": None}
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -58,8 +62,6 @@ def evaluate_agent_dag():
     @task
     def prepare_run():
         """Prepare run directory and config."""
-        from airflow.operators.python import get_current_context
-
         context = get_current_context()
         dag_run = context.get("dag_run")
         params = dict(context.get("params", {}))
@@ -79,6 +81,7 @@ def evaluate_agent_dag():
             "run_eval": str(run_dir / "run-eval"),
             "metrics": str(run_dir / "metrics.json"),
             "mlflow_experiment": "swe-bench-eval",
+            "agent_config_path": config.get("agent_config_path"),
         }
 
         manifest_path = run_dir / "manifest.json"
@@ -139,6 +142,7 @@ def evaluate_agent_dag():
         manifest.update(
             {
                 "predictions": str(run_dir / "run-agent" / "preds.json"),
+                "agent_config_path": config.get("agent_config_path"),
                 "eval_summary": metrics.get("summary_path"),
                 "metrics": str(metrics_path),
                 "finished_at": datetime.now().isoformat(),
