@@ -1,12 +1,13 @@
 [project]
 name = "mlops-assignment-e2e-ml-pipeline"
 version = "0.1.0"
-description = "Add your description here"
+description = "MLOps pipeline for coding agent evaluation"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "mini-swe-agent>=2.4.1",
     "swebench>=4.1.0",
+    "mlflow>=2.0.0",
 ]
 
 [dependency-groups]
