@@ -74,3 +74,24 @@ python test_helpers.py
 - MLflow logging is wired in, but whether it actually records to a UI depends on having an `MLFLOW_TRACKING_URI` or a local MLflow server available in the environment.
 - I have not done the DockerOperator / docker-compose part yet. That is next once this version feels stable enough.
 
+## Phase 2 / Production-style setup
+
+Added production-style deployment scaffolding for local VM use:
+
+- `docker-compose.yaml` for Airflow + Postgres + MLflow
+- `docker/airflow/Dockerfile` for an Airflow image with `uv` and project dependencies
+- expanded `.env.example` with Airflow/MLflow environment variables
+
+Run flow for this setup:
+
+```bash
+cp .env.example .env
+docker compose up airflow-init
+docker compose up -d
+```
+
+UI endpoints:
+
+- Airflow: `http://localhost:8080`
+- MLflow: `http://localhost:5000`
+
