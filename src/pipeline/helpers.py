@@ -3,7 +3,6 @@ import os
 import hashlib
 import shutil
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -262,30 +261,7 @@ def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any],
 
     try:
         import mlflow
-
         _log_with_mlflow_module(mlflow)
     except ImportError:
-        print("MLflow not available in Airflow environment, retrying via uv run...")
-        payload = {
-            "run_id": run_id,
-            "config": config,
-            "metrics": metrics,
-            "artifact_uri": artifact_uri,
-        }
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fp:
-            json.dump(payload, fp)
-            payload_path = Path(fp.name)
-
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "src.pipeline.mlflow_runner",
-            str(payload_path),
-        ]
-        result = subprocess.run(cmd, env=os.environ.copy(), cwd=PROJECT_ROOT)
-        payload_path.unlink(missing_ok=True)
-        if result.returncode != 0:
-            print("MLflow logging fallback failed")
+        print("MLflow not available in Airflow environment; skipping MLflow logging")
 
