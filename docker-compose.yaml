@@ -92,6 +92,7 @@ services:
       context: .
       dockerfile: docker/airflow/Dockerfile
     hostname: airflow-scheduler
+    privileged: true
     env_file:
       - .env
     environment:
