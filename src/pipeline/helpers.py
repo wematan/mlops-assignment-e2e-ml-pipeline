@@ -57,11 +57,12 @@ def resolve_agent_config_path():
         if resolved.exists():
             return resolved
 
-    raise FileNotFoundError(
-        "Could not find swebench.yaml for mini-swe-agent. "
-        f"Checked: {candidates}. Expected the README layout with ../mini-swe-agent, "
-        "or set MINISWEAGENT_BENCHMARK_CONFIG explicitly."
+    print(
+        "Warning: Could not find swebench.yaml for mini-swe-agent. "
+        f"Checked: {candidates}. Will run with mini-swe-agent defaults. "
+        "Set MINISWEAGENT_BENCHMARK_CONFIG to force a specific benchmark config."
     )
+    return None
 
 
 def _as_int(value):
@@ -122,7 +123,7 @@ def build_run_config(params):
         "task_slice": _normalize_optional(params.get("task_slice")),
         "cost_limit": str(params.get("cost_limit", "0")),
         "dataset_name": _dataset_name_for_subset(params.get("subset", "verified")),
-        "agent_config_path": str(agent_config_path),
+        "agent_config_path": str(agent_config_path) if agent_config_path else None,
         "use_docker_operator": _as_bool(params.get("use_docker_operator", False)),
         "docker_image": str(params.get("docker_image", "mlops-assignment-runner:latest")),
         "timestamp": datetime.now().isoformat(),
@@ -160,7 +161,8 @@ def run_agent_batch(config: dict[str, Any], run_dir: Path):
     preds_file = agent_dir / "preds.json"
     trajectories_dir = agent_dir / "trajectories"
     logs_dir = agent_dir / "logs"
-    config_path = Path(config["agent_config_path"])
+    config_path_raw = config.get("agent_config_path")
+    config_path = Path(config_path_raw).expanduser() if config_path_raw else None
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     if preds_file.exists() and any(trajectories_dir.iterdir()):
@@ -185,10 +187,12 @@ def run_agent_batch(config: dict[str, Any], run_dir: Path):
             "--subset", config["subset"],
             "--split", config["split"],
             "--model", config["model"],
-            "--config", str(config_path),
             "--workers", str(config["workers"]),
             "-o", str(trajectories_dir),
         ]
+
+        if config_path and config_path.exists():
+            cmd.extend(["--config", str(config_path)])
 
         if config.get("task_slice"):
             cmd.extend(["--slice", config["task_slice"]])

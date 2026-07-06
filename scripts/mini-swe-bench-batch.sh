@@ -14,20 +14,20 @@ OUTPUT_DIR=${6:-trajectories}
 
 MINISWEAGENT_CONFIG=${MINISWEAGENT_BENCHMARK_CONFIG:-$PROJECT_ROOT/../mini-swe-agent/src/minisweagent/config/benchmarks/swebench.yaml}
 
-if [ ! -f "$MINISWEAGENT_CONFIG" ]; then
-    echo "mini-swe-agent benchmark config not found at: $MINISWEAGENT_CONFIG" >&2
-    exit 1
-fi
-
 CMD=(
     mini-extra swebench
     --subset "$SUBSET"
     --split "$SPLIT"
     --model "$MODEL"
-    --config "$MINISWEAGENT_CONFIG"
     --workers "$WORKERS"
     -o "$OUTPUT_DIR"
 )
+
+if [ -f "$MINISWEAGENT_CONFIG" ]; then
+    CMD+=(--config "$MINISWEAGENT_CONFIG")
+else
+    echo "Warning: mini-swe-agent benchmark config not found at: $MINISWEAGENT_CONFIG. Using defaults." >&2
+fi
 
 if [ -n "$TASK_SLICE" ]; then
     CMD+=(--slice "$TASK_SLICE")
