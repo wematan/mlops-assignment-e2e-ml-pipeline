@@ -68,6 +68,7 @@ services:
       AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/dags
       AIRFLOW__WEBSERVER__WEB_SERVER_PORT: 8080
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY}
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
     user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
     command: webserver
