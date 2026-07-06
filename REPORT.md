@@ -1,17 +1,21 @@
-# Phase 1
+# Evaluation Pipeline Report
 
-I started with the easy-mode version first: a plain Airflow DAG that wires the existing agent and eval commands together, writes everything into a single run folder, and leaves enough breadcrumbs to rerun or inspect the job later.
+This is the current state of the assignment implementation after finishing the first working version and adding production-style hardening.
 
-## What is in place
+## What is working now
 
-- `dags/evaluate_agent.py`
-  - `prepare_run`
-  - `run_agent`
-  - `run_eval`
-  - `summarize_and_log`
-- `src/pipeline/helpers.py` for the small amount of plumbing around paths, checkpointing, metrics parsing, and MLflow logging.
+The main DAG is `dags/evaluate_agent.py` with four tasks:
 
-## Params
+1. `prepare_run`
+2. `run_agent`
+3. `run_eval`
+4. `summarize_and_log`
+
+Helper logic lives in `src/pipeline/helpers.py`.
+
+The pipeline creates a run folder under `runs/<run-id>/`, runs mini-swe-agent, runs SWE-bench evaluation, writes metrics/manifest, and logs the run to MLflow.
+
+## Parameters and run identity
 
 The DAG accepts:
 
@@ -22,70 +26,74 @@ The DAG accepts:
 - `task_slice`
 - `run_id`
 - `cost_limit`
+- `use_docker_operator`
+- `docker_image`
 
-If `run_id` is not passed, it is generated automatically from timestamp + model.
+If `run_id` is not provided, it is generated from timestamp + model hash.
 
-## Run layout
+## Run artifacts and reproducibility
 
-Each run goes under `runs/<run-id>/` and currently looks like this:
+Each run is structured like this:
 
 ```text
 runs/<run-id>/
   config.json
   manifest.json
+  metrics.json
   run-agent/
     preds.json
     trajectories/
+    logs/
+      agent.stdout.log
+      agent.stderr.log
   run-eval/
     logs/
+      eval.stdout.log
+      eval.stderr.log
     reports/
     *.json
-  metrics.json
 ```
 
-The idea is that the folder itself is the handoff artifact.
+`manifest.json` records the important paths and execution mode (`use_docker_operator`, `docker_image`) so a teammate can reconstruct what happened from one folder.
 
-## Checkpointing
+## Hardening done in this phase
 
-This first pass already checkpoints the expensive steps:
+- Added checkpointing for expensive steps:
+  - skip agent run when `run-agent/preds.json` and trajectories already exist
+  - skip evaluation when a summary json already exists in `run-eval/`
+- Added command-level stdout/stderr capture into run-local log files.
+- Added task retries/timeouts with the same defaults across all DAG tasks:
+  - `retries=1`
+  - `retry_delay=2 minutes`
+  - `execution_timeout=6 hours`
+- Added helper-level command timeouts through env vars:
+  - `PIPELINE_AGENT_TIMEOUT_SECONDS` (default `21600`)
+  - `PIPELINE_EVAL_TIMEOUT_SECONDS` (default `14400`)
 
-- agent step skips if `run-agent/preds.json` is already there
-- eval step skips if the eval summary json already exists in `run-eval/`
+## MLflow tracking
 
-That should make retries less painful when only the last step fails.
+The DAG logs each run to MLflow experiment `swe-bench-eval` with:
 
-## Local validation I ran
+- parameters (including execution-mode flags)
+- metrics (`resolved`, `completed`, `total`, `pass_rate`)
+- `run_id` tag
+- full run artifacts via `mlflow.log_artifacts(runs/<run-id>/...)`
 
-I added a tiny `test_helpers.py` runner and used it to verify:
+In short: MLflow is used for comparison, and `runs/<run-id>/` is still the source-of-truth handoff folder.
 
-- config building
-- run id generation
-- run directory creation
-- sample metrics parsing from the provided `sample/` data
+## Deployment setup used
 
-Run it with:
+Production-style local setup is via:
 
-```bash
-python test_helpers.py
-```
+- `docker-compose.yaml` (Airflow + Postgres + MLflow)
+- `docker/airflow/Dockerfile` (Airflow image with `uv`, project deps, and Docker provider)
+- `.env.example` (required env variables)
 
-## Notes
-
-- MLflow logging is wired in, but whether it actually records to a UI depends on having an `MLFLOW_TRACKING_URI` or a local MLflow server available in the environment.
-- I have not done the DockerOperator / docker-compose part yet. That is next once this version feels stable enough.
-
-## Phase 2 / Production-style setup
-
-Added production-style deployment scaffolding for local VM use:
-
-- `docker-compose.yaml` for Airflow + Postgres + MLflow
-- `docker/airflow/Dockerfile` for an Airflow image with `uv` and project dependencies
-- expanded `.env.example` with Airflow/MLflow environment variables
-
-Run flow for this setup:
+Bring it up with:
 
 ```bash
 cp .env.example .env
+docker compose build airflow-webserver airflow-scheduler airflow-init
 docker compose up airflow-init
 docker compose up -d
 ```
@@ -94,4 +102,12 @@ UI endpoints:
 
 - Airflow: `http://localhost:8080`
 - MLflow: `http://localhost:5000`
+
+## What is intentionally pending
+
+- Full Airflow `DockerOperator` task wiring is still pending.
+  - Right now, `use_docker_operator` is implemented as a feature flag in config/manifest/execution path, with subprocess fallback still in place.
+- S3/object storage upload step is intentionally deferred for now.
+
+This keeps the current version stable and reproducible while leaving a clean next step for full production isolation and remote artifact durability.
 
