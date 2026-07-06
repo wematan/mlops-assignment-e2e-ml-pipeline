@@ -107,8 +107,9 @@ def _run_command(
     stdout_path.write_text(completed.stdout or "", encoding="utf-8")
     stderr_path.write_text(completed.stderr or "", encoding="utf-8")
     if completed.returncode != 0:
+        stderr_tail = (completed.stderr or "").strip()[-2000:]
         raise RuntimeError(
-            f"Command failed with code {completed.returncode}: {' '.join(cmd)}"
+            f"Command failed with code {completed.returncode}: {' '.join(cmd)}\n--- stderr ---\n{stderr_tail}"
         )
 
 
