@@ -10,6 +10,15 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = PROJECT_ROOT / "runs"
+VENV_BIN = PROJECT_ROOT / ".venv" / "bin"
+
+
+def _venv_cmd(name: str) -> str:
+    """Return path to venv binary if available, otherwise fall back to PATH lookup."""
+    candidate = VENV_BIN / name
+    if candidate.exists():
+        return str(candidate)
+    return name
 
 
 def _normalize_optional(value):
@@ -184,7 +193,7 @@ def run_agent_batch(config: dict[str, Any], run_dir: Path):
         ]
     else:
         cmd = [
-            "uv", "run", "mini-extra", "swebench",
+            _venv_cmd("mini-extra"), "swebench",
             "--subset", config["subset"],
             "--split", config["split"],
             "--model", config["model"],
@@ -257,7 +266,7 @@ def run_swebench_eval(config: dict[str, Any], preds_path: Path, run_dir: Path):
         ]
     else:
         cmd = [
-            "uv", "run", "python", "-m", "swebench.harness.run_evaluation",
+            _venv_cmd("python"), "-m", "swebench.harness.run_evaluation",
             "--dataset_name", dataset_name,
             "--predictions_path", str(preds_path.resolve()),
             "--max_workers", max_workers,
