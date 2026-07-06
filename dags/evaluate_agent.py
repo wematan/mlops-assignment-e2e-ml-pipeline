@@ -29,6 +29,9 @@ except ImportError:  # local lint/test fallback
         return {"params": {}, "dag_run": None}
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_RETRIES = 1
+DEFAULT_RETRY_DELAY = timedelta(minutes=2)
+DEFAULT_EXEC_TIMEOUT = timedelta(hours=6)
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -57,10 +60,16 @@ from src.pipeline.helpers import (
         "task_slice": None,
         "run_id": None,
         "cost_limit": "0",
+        "use_docker_operator": False,
+        "docker_image": "mlops-assignment-runner:latest",
     },
 )
 def evaluate_agent_dag():
-    @task(retries=1, retry_delay=timedelta(minutes=1), execution_timeout=timedelta(minutes=5))
+    @task(
+        retries=DEFAULT_RETRIES,
+        retry_delay=DEFAULT_RETRY_DELAY,
+        execution_timeout=DEFAULT_EXEC_TIMEOUT,
+    )
     def prepare_run():
         """Prepare run directory and config."""
         context = get_current_context()
@@ -83,6 +92,8 @@ def evaluate_agent_dag():
             "metrics": str(run_dir / "metrics.json"),
             "mlflow_experiment": "swe-bench-eval",
             "agent_config_path": config.get("agent_config_path"),
+            "use_docker_operator": config.get("use_docker_operator", False),
+            "docker_image": config.get("docker_image"),
         }
 
         manifest_path = run_dir / "manifest.json"
@@ -91,7 +102,11 @@ def evaluate_agent_dag():
 
         return {"run_id": run_id, "run_dir": str(run_dir), "config": config}
 
-    @task(retries=1, retry_delay=timedelta(minutes=2), execution_timeout=timedelta(hours=6))
+    @task(
+        retries=DEFAULT_RETRIES,
+        retry_delay=DEFAULT_RETRY_DELAY,
+        execution_timeout=DEFAULT_EXEC_TIMEOUT,
+    )
     def run_agent(prepare_info):
         """Run mini-swe-agent."""
         run_dir = Path(prepare_info["run_dir"])
@@ -105,7 +120,11 @@ def evaluate_agent_dag():
             "preds_path": str(agent_dir / "preds.json"),
         }
 
-    @task(retries=1, retry_delay=timedelta(minutes=2), execution_timeout=timedelta(hours=4))
+    @task(
+        retries=DEFAULT_RETRIES,
+        retry_delay=DEFAULT_RETRY_DELAY,
+        execution_timeout=DEFAULT_EXEC_TIMEOUT,
+    )
     def run_eval(agent_info, prepare_info):
         """Run SWE-bench evaluation."""
         run_dir = Path(agent_info["run_dir"])
@@ -119,7 +138,11 @@ def evaluate_agent_dag():
             "eval_dir": str(eval_dir),
         }
 
-    @task(retries=1, retry_delay=timedelta(minutes=1), execution_timeout=timedelta(minutes=10))
+    @task(
+        retries=DEFAULT_RETRIES,
+        retry_delay=DEFAULT_RETRY_DELAY,
+        execution_timeout=DEFAULT_EXEC_TIMEOUT,
+    )
     def summarize_and_log(eval_info, prepare_info):
         """Parse metrics and log to MLflow."""
         run_dir = Path(eval_info["run_dir"])
@@ -146,6 +169,8 @@ def evaluate_agent_dag():
                 "agent_config_path": config.get("agent_config_path"),
                 "eval_summary": metrics.get("summary_path"),
                 "metrics": str(metrics_path),
+                "use_docker_operator": config.get("use_docker_operator", False),
+                "docker_image": config.get("docker_image"),
                 "finished_at": datetime.now().isoformat(),
             }
         )
