@@ -71,6 +71,38 @@ def _as_int(value):
         return 0
 
 
+def _run_command(
+    cmd: list[str],
+    cwd: Path,
+    env: dict[str, str],
+    stdout_path: Path,
+    stderr_path: Path,
+    timeout_seconds: int,
+):
+    try:
+        completed = subprocess.run(
+            cmd,
+            env=env,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout_path.write_text(exc.stdout or "", encoding="utf-8")
+        stderr_path.write_text(exc.stderr or "", encoding="utf-8")
+        raise RuntimeError(
+            f"Command timed out after {timeout_seconds}s: {' '.join(cmd)}"
+        ) from exc
+
+    stdout_path.write_text(completed.stdout or "", encoding="utf-8")
+    stderr_path.write_text(completed.stderr or "", encoding="utf-8")
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"Command failed with code {completed.returncode}: {' '.join(cmd)}"
+        )
+
+
 def build_run_config(params):
     """Build config dict from Airflow params."""
     agent_config_path = resolve_agent_config_path()
@@ -117,7 +149,9 @@ def run_agent_batch(config: dict[str, Any], run_dir: Path):
     agent_dir = run_dir / "run-agent"
     preds_file = agent_dir / "preds.json"
     trajectories_dir = agent_dir / "trajectories"
+    logs_dir = agent_dir / "logs"
     config_path = Path(config["agent_config_path"])
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     if preds_file.exists() and any(trajectories_dir.iterdir()):
         print("Agent output exists, skipping")
@@ -141,10 +175,16 @@ def run_agent_batch(config: dict[str, Any], run_dir: Path):
 
     env = os.environ.copy()
     env["MSWEA_COST_TRACKING"] = "ignore_errors"
+    timeout_seconds = int(os.environ.get("PIPELINE_AGENT_TIMEOUT_SECONDS", "21600"))
 
-    result = subprocess.run(cmd, env=env, cwd=PROJECT_ROOT)
-    if result.returncode != 0:
-        raise RuntimeError(f"Agent run failed with code {result.returncode}")
+    _run_command(
+        cmd=cmd,
+        env=env,
+        cwd=PROJECT_ROOT,
+        stdout_path=logs_dir / "agent.stdout.log",
+        stderr_path=logs_dir / "agent.stderr.log",
+        timeout_seconds=timeout_seconds,
+    )
 
     candidate_paths = [
         trajectories_dir / "preds.json",
@@ -175,6 +215,8 @@ def run_swebench_eval(config: dict[str, Any], preds_path: Path, run_dir: Path):
     run_id = run_dir.name
     dataset_name = str(config["dataset_name"])
     max_workers = str(config["workers"])
+    logs_dir = eval_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         "uv", "run", "python", "-m", "swebench.harness.run_evaluation",
         "--dataset_name", dataset_name,
@@ -184,9 +226,15 @@ def run_swebench_eval(config: dict[str, Any], preds_path: Path, run_dir: Path):
     ]
 
     env = os.environ.copy()
-    result = subprocess.run(cmd, env=env, cwd=eval_dir)
-    if result.returncode != 0:
-        raise RuntimeError(f"Evaluation failed with code {result.returncode}")
+    timeout_seconds = int(os.environ.get("PIPELINE_EVAL_TIMEOUT_SECONDS", "14400"))
+    _run_command(
+        cmd=cmd,
+        env=env,
+        cwd=eval_dir,
+        stdout_path=logs_dir / "eval.stdout.log",
+        stderr_path=logs_dir / "eval.stderr.log",
+        timeout_seconds=timeout_seconds,
+    )
 
     if _find_eval_summary(eval_dir) is None:
         raise FileNotFoundError(f"Could not find evaluation summary JSON in {eval_dir}")

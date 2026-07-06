@@ -1,6 +1,7 @@
 import sys
 import json
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 
 try:
@@ -59,7 +60,7 @@ from src.pipeline.helpers import (
     },
 )
 def evaluate_agent_dag():
-    @task
+    @task(retries=1, retry_delay=timedelta(minutes=1), execution_timeout=timedelta(minutes=5))
     def prepare_run():
         """Prepare run directory and config."""
         context = get_current_context()
@@ -90,7 +91,7 @@ def evaluate_agent_dag():
 
         return {"run_id": run_id, "run_dir": str(run_dir), "config": config}
 
-    @task
+    @task(retries=1, retry_delay=timedelta(minutes=2), execution_timeout=timedelta(hours=6))
     def run_agent(prepare_info):
         """Run mini-swe-agent."""
         run_dir = Path(prepare_info["run_dir"])
@@ -104,7 +105,7 @@ def evaluate_agent_dag():
             "preds_path": str(agent_dir / "preds.json"),
         }
 
-    @task
+    @task(retries=1, retry_delay=timedelta(minutes=2), execution_timeout=timedelta(hours=4))
     def run_eval(agent_info, prepare_info):
         """Run SWE-bench evaluation."""
         run_dir = Path(agent_info["run_dir"])
@@ -118,7 +119,7 @@ def evaluate_agent_dag():
             "eval_dir": str(eval_dir),
         }
 
-    @task
+    @task(retries=1, retry_delay=timedelta(minutes=1), execution_timeout=timedelta(minutes=10))
     def summarize_and_log(eval_info, prepare_info):
         """Parse metrics and log to MLflow."""
         run_dir = Path(eval_info["run_dir"])
