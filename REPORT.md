@@ -81,6 +81,12 @@ The DAG logs each run to MLflow experiment `swe-bench-eval` with:
 
 In short: MLflow is used for comparison, and `runs/<run-id>/` is still the source-of-truth handoff folder.
 
+MLflow is pinned to `2.17.0` (both server and client). Newer 3.x server builds reject the
+`Host: mlflow:5000` header from inside the compose network as a DNS-rebinding attempt, which
+breaks logging. The pin avoids that. MLflow logging is also non-fatal now: `metrics.json` and
+`manifest.json` are written before the MLflow call, so a tracking hiccup only prints a warning
+instead of failing the run.
+
 ## Deployment setup used
 
 Production-style local setup is via:
@@ -103,7 +109,27 @@ UI endpoints:
 - Airflow: `http://localhost:8080`
 - MLflow: `http://localhost:5000`
 
+## Environment setup that actually matters
+
+A few things need to be right in `.env` before the compose stack behaves on a Linux VM:
+
+- `AIRFLOW_UID` should be your host user id (`id -u`). Running the containers as your own user
+  keeps the bind-mounted `runs/` folder writable and avoids permission clashes.
+- `DOCKER_GID` should match the docker socket group (`stat -c '%g' /var/run/docker.sock`). The
+  `run_eval` step shells out to the SWE-bench harness, which talks to the Docker daemon to spin up
+  one container per test instance.
+- `AIRFLOW_WEBSERVER_SECRET_KEY` must be set to a stable value. All Airflow services share it, which
+  fixes the "Could not read served logs / 403" issue when viewing task logs.
+
+Two more compose details worth calling out:
+
+- The scheduler runs with `privileged: true` and mounts `/var/run/docker.sock`. That is what lets
+  the evaluation step reach Docker for the SWE-bench containers.
+- The agent and eval steps call the project venv binaries directly (`.venv/bin/mini-extra`,
+  `.venv/bin/python`) instead of `uv run`, which was unreliable inside the Airflow container.
+
 ## What is intentionally pending
+
 
 - Full Airflow `DockerOperator` task wiring is still pending.
   - Right now, `use_docker_operator` is implemented as a feature flag in config/manifest/execution path, with subprocess fallback still in place.
