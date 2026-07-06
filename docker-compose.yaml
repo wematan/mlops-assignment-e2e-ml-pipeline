@@ -102,6 +102,8 @@ services:
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY}
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
     user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+    group_add:
+      - "${DOCKER_GID:-999}"
     command: scheduler
     volumes:
       - ./dags:/opt/airflow/project/dags
