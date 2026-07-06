@@ -74,6 +74,8 @@ services:
       - ./src:/opt/airflow/project/src
       - ./scripts:/opt/airflow/project/scripts
       - ./runs:/opt/airflow/project/runs
+      - ./:/opt/airflow/project
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8080:8080"
     depends_on:
@@ -103,6 +105,8 @@ services:
       - ./src:/opt/airflow/project/src
       - ./scripts:/opt/airflow/project/scripts
       - ./runs:/opt/airflow/project/runs
+      - ./:/opt/airflow/project
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

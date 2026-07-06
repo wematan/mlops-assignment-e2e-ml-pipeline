@@ -17,6 +17,9 @@ RUN uv sync --locked
 # mlflow import is used directly in Airflow task process
 RUN pip install --no-cache-dir mlflow
 
+# DockerOperator support (provider + docker SDK client)
+RUN pip install --no-cache-dir apache-airflow-providers-docker docker
+
 COPY src ./src
 COPY scripts ./scripts
 COPY dags ./dags
