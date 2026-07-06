@@ -322,6 +322,9 @@ def collect_metrics(eval_dir: Path):
 
 def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any], artifact_uri: str):
     """Log run to MLflow."""
+    # mlflow tries to read git info from the source; silence the warning when git is absent.
+    os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
+
     def _log_with_mlflow_module(mlflow_module):
         tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
         if tracking_uri:
@@ -352,6 +355,7 @@ def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any],
             )
             mlflow_module.set_tag("run_id", run_id)
             mlflow_module.set_tag("artifact_scope", "full_run_dir")
+            mlflow_module.set_tag("run_dir", artifact_uri)
             artifact_path = Path(artifact_uri)
             if artifact_path.is_dir():
                 mlflow_module.log_artifacts(str(artifact_path), artifact_path="run")
