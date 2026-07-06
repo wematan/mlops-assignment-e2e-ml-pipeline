@@ -360,7 +360,12 @@ def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any],
 
     try:
         import mlflow
-        _log_with_mlflow_module(mlflow)
     except ImportError:
         print("MLflow not available in Airflow environment; skipping MLflow logging")
+        return
+
+    try:
+        _log_with_mlflow_module(mlflow)
+    except Exception as exc:
+        print(f"MLflow logging failed (run artifacts are still in {artifact_uri}): {exc}")
 

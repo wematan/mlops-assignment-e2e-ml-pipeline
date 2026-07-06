@@ -20,7 +20,7 @@ services:
       MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI}
       MLFLOW_ARTIFACT_ROOT: ${MLFLOW_ARTIFACT_ROOT}
     command: >
-      bash -lc "pip install --no-cache-dir mlflow &&
+      bash -lc "pip install --no-cache-dir 'mlflow==2.17.0' &&
       mlflow server --host 0.0.0.0 --port 5000
       --backend-store-uri ${MLFLOW_BACKEND_STORE_URI}
       --default-artifact-root ${MLFLOW_ARTIFACT_ROOT}"
