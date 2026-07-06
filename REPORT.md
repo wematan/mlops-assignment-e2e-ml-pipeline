@@ -87,6 +87,17 @@ breaks logging. The pin avoids that. MLflow logging is also non-fatal now: `metr
 `manifest.json` are written before the MLflow call, so a tracking hiccup only prints a warning
 instead of failing the run.
 
+> Note: if a 3.x MLflow server ran against the `mlflow-data` volume first, its SQLite DB carries
+> an alembic revision 2.17.0 cannot resolve (`Can't locate revision identified by ...`). Wipe the
+> volume once so the pinned server can create a clean schema:
+>
+> ```bash
+> docker compose stop mlflow
+> docker compose rm -f mlflow
+> docker volume rm mlops-assignment-e2e-ml-pipeline_mlflow-data
+> docker compose up -d mlflow
+> ```
+
 ## Deployment setup used
 
 Production-style local setup is via:
