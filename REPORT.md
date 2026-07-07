@@ -8,7 +8,7 @@ The DAG lives in `dags/evaluate_agent.py` and runs five steps in order: `prepare
 
 ## Parameters
 
-The DAG is triggered with `split`, `subset`, `workers`, `model`, `task_slice`, `run_id`, `cost_limit`, `use_docker_operator`, and `docker_image`. If you don't pass a `run_id`, one is generated from the timestamp plus a short model hash so runs never collide.
+The DAG is triggered with `split`, `subset`, `workers`, `model`, `task_slice`, `run_id`, and `cost_limit`. If you don't pass a `run_id`, one is generated from the timestamp plus a short model hash so runs never collide.
 
 ## What a run looks like on disk
 
@@ -31,7 +31,9 @@ A few things make reruns and debugging less painful:
 
 ## How the agent and eval run
 
-Both `run_agent` and `run_eval` are plain Python tasks that shell out, and the `use_docker_operator` param decides how. With it off (the default) they call the project's venv binaries directly (`.venv/bin/mini-extra`, `.venv/bin/python`); with it on they go through the parameterized `scripts/mini-swe-bench-batch.sh` and `scripts/swe-bench-eval.sh` instead. Worth being clear about what this flag is and isn't: today both paths still execute inside the scheduler container — it only picks the entry point. The shell-script path is deliberately the same one a containerized runner would call, so moving these two steps into their own container later (a real `DockerOperator` on the project `Dockerfile`, or a `KubernetesPodOperator` at scale) is mostly wiring rather than a rewrite. The scheduler already has the Docker socket mounted, which is also what lets the SWE-bench harness start its per-instance test containers during eval.
+There are two execution modes, chosen at deploy time with the `EXECUTION_MODE` env var. In `local` mode (the default) `run_agent` and `run_eval` are Python tasks that call the project's venv binaries directly (`.venv/bin/mini-extra`, `.venv/bin/python`) inside the scheduler. In `docker` mode they become real Airflow `DockerOperator` tasks that run the top-level `Dockerfile` image and execute the parameterized `scripts/*.sh` inside it — genuinely isolated from the scheduler.
+
+Because the operator launches sibling containers through the host Docker daemon, it bind-mounts `${HOST_PROJECT_DIR}/runs` into the container so outputs land in the same `runs/<run-id>/` the other tasks read, and the eval task also gets the Docker socket so the SWE-bench harness can start its per-instance test containers. To turn it on: build the runner image once (`docker compose build runner`), set `EXECUTION_MODE=docker` and `HOST_PROJECT_DIR` to the repo's absolute path, then restart. If the Docker provider or `HOST_PROJECT_DIR` isn't available it quietly falls back to local mode, so a misconfig never wedges the DAG. (`KubernetesPodOperator` would be the same shape at cluster scale.)
 
 ## MLflow
 

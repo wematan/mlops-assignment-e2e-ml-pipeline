@@ -71,6 +71,9 @@ services:
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY}
       AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      EXECUTION_MODE: ${EXECUTION_MODE:-local}
+      RUNNER_IMAGE: ${RUNNER_IMAGE:-mlops-assignment-runner:latest}
+      HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-}
     user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
     command: webserver
     volumes:
@@ -104,6 +107,9 @@ services:
       AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/dags
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY}
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      EXECUTION_MODE: ${EXECUTION_MODE:-local}
+      RUNNER_IMAGE: ${RUNNER_IMAGE:-mlops-assignment-runner:latest}
+      HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-}
     user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
     group_add:
       - "${DOCKER_GID:-999}"
@@ -136,6 +142,16 @@ services:
       - "9000:9000"
       - "9001:9001"
     restart: unless-stopped
+  # Build-only image used by the DockerOperator tasks when EXECUTION_MODE=docker.
+  # Build it with:  docker compose build runner
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${RUNNER_IMAGE:-mlops-assignment-runner:latest}
+    profiles: ["runner"]
+    command: ["true"]
+    restart: "no"
 volumes:
   postgres-db-volume:
   mlflow-data:

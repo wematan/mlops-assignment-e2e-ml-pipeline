@@ -134,8 +134,8 @@ def build_run_config(params):
         "cost_limit": str(params.get("cost_limit", "0")),
         "dataset_name": _dataset_name_for_subset(params.get("subset", "verified")),
         "agent_config_path": str(agent_config_path) if agent_config_path else None,
-        "use_docker_operator": _as_bool(params.get("use_docker_operator", False)),
-        "docker_image": str(params.get("docker_image", "mlops-assignment-runner:latest")),
+        "execution_mode": os.environ.get("EXECUTION_MODE", "local").strip().lower(),
+        "runner_image": os.environ.get("RUNNER_IMAGE", "mlops-assignment-runner:latest"),
         "timestamp": datetime.now().isoformat(),
     }
     return config
@@ -179,36 +179,23 @@ def run_agent_batch(config: dict[str, Any], run_dir: Path):
         print("Agent output exists, skipping")
         return agent_dir
 
-    use_docker_operator = bool(config.get("use_docker_operator", False))
-    if use_docker_operator:
-        cmd = [
-            "bash",
-            str((PROJECT_ROOT / "scripts" / "mini-swe-bench-batch.sh").resolve()),
-            str(config["subset"]),
-            str(config["split"]),
-            str(config["model"]),
-            str(config.get("task_slice") or ""),
-            str(config["workers"]),
-            str(trajectories_dir.resolve()),
-        ]
-    else:
-        cmd = [
-            _venv_cmd("mini-extra"), "swebench",
-            "--subset", config["subset"],
-            "--split", config["split"],
-            "--model", config["model"],
-            "--workers", str(config["workers"]),
-            "-o", str(trajectories_dir),
-        ]
+    cmd = [
+        _venv_cmd("mini-extra"), "swebench",
+        "--subset", config["subset"],
+        "--split", config["split"],
+        "--model", config["model"],
+        "--workers", str(config["workers"]),
+        "-o", str(trajectories_dir),
+    ]
 
-        if config_path and config_path.exists():
-            cmd.extend(["--config", str(config_path)])
+    if config_path and config_path.exists():
+        cmd.extend(["--config", str(config_path)])
 
-        if config.get("task_slice"):
-            cmd.extend(["--slice", config["task_slice"]])
+    if config.get("task_slice"):
+        cmd.extend(["--slice", config["task_slice"]])
 
-        if config.get("cost_limit") and config["cost_limit"] != "0":
-            cmd.extend(["--cost-limit", str(config["cost_limit"])])
+    if config.get("cost_limit") and config["cost_limit"] != "0":
+        cmd.extend(["--cost-limit", str(config["cost_limit"])])
 
     env = os.environ.copy()
     env["MSWEA_COST_TRACKING"] = "ignore_errors"
@@ -254,24 +241,13 @@ def run_swebench_eval(config: dict[str, Any], preds_path: Path, run_dir: Path):
     max_workers = str(config["workers"])
     logs_dir = eval_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    use_docker_operator = bool(config.get("use_docker_operator", False))
-    if use_docker_operator:
-        cmd = [
-            "bash",
-            str((PROJECT_ROOT / "scripts" / "swe-bench-eval.sh").resolve()),
-            dataset_name,
-            str(preds_path.resolve()),
-            max_workers,
-            run_id,
-        ]
-    else:
-        cmd = [
-            _venv_cmd("python"), "-m", "swebench.harness.run_evaluation",
-            "--dataset_name", dataset_name,
-            "--predictions_path", str(preds_path.resolve()),
-            "--max_workers", max_workers,
-            "--run_id", run_id,
-        ]
+    cmd = [
+        _venv_cmd("python"), "-m", "swebench.harness.run_evaluation",
+        "--dataset_name", dataset_name,
+        "--predictions_path", str(preds_path.resolve()),
+        "--max_workers", max_workers,
+        "--run_id", run_id,
+    ]
 
     env = os.environ.copy()
     timeout_seconds = int(os.environ.get("PIPELINE_EVAL_TIMEOUT_SECONDS", "14400"))
@@ -341,8 +317,8 @@ def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any],
                     "task_slice": config.get("task_slice") or "",
                     "cost_limit": config["cost_limit"],
                     "dataset_name": config["dataset_name"],
-                    "use_docker_operator": config.get("use_docker_operator", False),
-                    "docker_image": config.get("docker_image", ""),
+                    "execution_mode": config.get("execution_mode", "local"),
+                    "runner_image": config.get("runner_image", ""),
                 }
             )
             mlflow_module.log_metrics(
