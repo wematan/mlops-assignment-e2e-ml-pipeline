@@ -30,6 +30,15 @@ runs/<run-id>/
 - Same retry/timeout defaults on all tasks: `retries=1`, `retry_delay=2m`, `execution_timeout=6h`.
 - Command timeouts via `PIPELINE_AGENT_TIMEOUT_SECONDS` / `PIPELINE_EVAL_TIMEOUT_SECONDS`.
 
+## Execution isolation
+
+`run_agent` / `run_eval` are Python tasks that shell out. The `use_docker_operator` param picks the command path:
+
+- `false` (default): call the project venv binaries directly (`.venv/bin/mini-extra`, `.venv/bin/python`).
+- `true`: route through `scripts/mini-swe-bench-batch.sh` / `scripts/swe-bench-eval.sh` — the same entrypoints a container would call. Both paths still run inside the scheduler today; the flag does not spawn a separate container yet.
+
+The top-level `Dockerfile` is the intended runner image, and the scheduler already mounts the Docker socket, so wrapping these two steps as real Airflow `DockerOperator` tasks (or `KubernetesPodOperator` at scale) is the remaining isolation work.
+
 ## MLflow
 
 Logs params, metrics (`resolved`, `completed`, `total`, `pass_rate`), and full run artifacts to experiment `swe-bench-eval`.
@@ -64,5 +73,5 @@ It's optional: with `S3_BUCKET` empty the step skips cleanly, and any upload err
 
 ## Pending
 
-- `DockerOperator` wiring (currently a feature flag with subprocess fallback).
+- Real Airflow `DockerOperator` tasks for `run_agent` / `run_eval` built on the top-level `Dockerfile`. The `use_docker_operator` flag is the stepping stone — it already exercises the `scripts/*.sh` entrypoints a container would run, so the switch is mostly wiring plus mounting `runs/` into the task container.
 
