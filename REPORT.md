@@ -4,7 +4,7 @@ Airflow pipeline that runs mini-swe-agent on SWE-bench, evaluates the patches, a
 
 ## Pipeline
 
-DAG `dags/evaluate_agent.py` → `prepare_run` → `run_agent` → `run_eval` → `summarize_and_log`.
+DAG `dags/evaluate_agent.py` → `prepare_run` → `run_agent` → `run_eval` → `summarize_and_log` → `upload_artifacts`.
 Helpers in `src/pipeline/helpers.py`. Each run writes a self-contained folder under `runs/<run-id>/`.
 
 ## Params
@@ -56,8 +56,11 @@ Required `.env` values on a Linux VM:
 The scheduler runs `privileged` with the docker socket mounted so eval can start SWE-bench containers.
 Agent/eval call `.venv/bin/*` directly (more reliable than `uv run` in-container).
 
+## Object storage (S3)
+
+`upload_artifacts` pushes the whole `runs/<run-id>/` folder to an S3-compatible bucket (e.g. Nebius Object Storage) and records the URI in `manifest.json` and as an MLflow `s3_uri` tag. It's optional: with `S3_BUCKET` empty the step skips cleanly, and any upload error is non-fatal since the local run folder is the source of truth. Configure via `.env`: `S3_BUCKET`, `S3_PREFIX`, `S3_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`.
+
 ## Pending
 
 - `DockerOperator` wiring (currently a feature flag with subprocess fallback).
-- S3/object-storage upload (deferred).
 

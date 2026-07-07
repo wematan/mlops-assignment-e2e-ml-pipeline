@@ -14,8 +14,8 @@ WORKDIR /opt/airflow/project
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked
 
-# mlflow import is used directly in Airflow task process
-RUN pip install --no-cache-dir 'mlflow==2.17.0'
+# mlflow + boto3 are imported directly in the Airflow task process
+RUN pip install --no-cache-dir 'mlflow==2.17.0' boto3
 
 # DockerOperator support (provider + docker SDK client)
 RUN pip install --no-cache-dir apache-airflow-providers-docker docker

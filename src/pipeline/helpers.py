@@ -320,7 +320,7 @@ def collect_metrics(eval_dir: Path):
     return metrics
 
 
-def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any], artifact_uri: str):
+def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any], artifact_uri: str, s3_uri: str | None = None):
     """Log run to MLflow."""
     # mlflow tries to read git info from the source; silence the warning when git is absent.
     os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
@@ -356,6 +356,8 @@ def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any],
             mlflow_module.set_tag("run_id", run_id)
             mlflow_module.set_tag("artifact_scope", "full_run_dir")
             mlflow_module.set_tag("run_dir", artifact_uri)
+            if s3_uri:
+                mlflow_module.set_tag("s3_uri", s3_uri)
             artifact_path = Path(artifact_uri)
             if artifact_path.is_dir():
                 mlflow_module.log_artifacts(str(artifact_path), artifact_path="run")
@@ -372,4 +374,52 @@ def log_mlflow_run(run_id: str, config: dict[str, Any], metrics: dict[str, Any],
         _log_with_mlflow_module(mlflow)
     except Exception as exc:
         print(f"MLflow logging failed (run artifacts are still in {artifact_uri}): {exc}")
+
+
+def s3_destination_uri(run_id: str) -> str | None:
+    """Return the planned S3 URI for a run, or None if S3 is not configured."""
+    bucket = os.environ.get("S3_BUCKET")
+    if not bucket:
+        return None
+    prefix = os.environ.get("S3_PREFIX", "runs").strip("/")
+    key_prefix = f"{prefix}/{run_id}" if prefix else run_id
+    return f"s3://{bucket}/{key_prefix}"
+
+
+def upload_run_to_s3(run_dir: Path, run_id: str) -> dict[str, Any]:
+    """Upload the whole run folder to S3-compatible storage (e.g. Nebius Object Storage).
+
+    Skips gracefully when S3 is not configured. Never raises: on failure it returns a
+    result with ``uploaded=False`` so the run folder stays the source of truth.
+    """
+    bucket = os.environ.get("S3_BUCKET")
+    if not bucket:
+        print("S3_BUCKET not set; skipping S3 upload")
+        return {"skipped": True, "uploaded": False, "s3_uri": None}
+
+    try:
+        import boto3
+    except ImportError:
+        print("boto3 not installed; skipping S3 upload")
+        return {"skipped": True, "uploaded": False, "s3_uri": None}
+
+    prefix = os.environ.get("S3_PREFIX", "runs").strip("/")
+    endpoint_url = os.environ.get("S3_ENDPOINT_URL") or None
+    key_prefix = f"{prefix}/{run_id}" if prefix else run_id
+    s3_uri = f"s3://{bucket}/{key_prefix}"
+
+    try:
+        client = boto3.session.Session().client("s3", endpoint_url=endpoint_url)
+        uploaded = 0
+        for path in sorted(run_dir.rglob("*")):
+            if path.is_file():
+                rel = path.relative_to(run_dir).as_posix()
+                client.upload_file(str(path), bucket, f"{key_prefix}/{rel}")
+                uploaded += 1
+        print(f"Uploaded {uploaded} files to {s3_uri}")
+        return {"skipped": False, "uploaded": True, "s3_uri": s3_uri, "files": uploaded}
+    except Exception as exc:
+        print(f"S3 upload failed for {s3_uri}: {exc}")
+        return {"skipped": False, "uploaded": False, "s3_uri": s3_uri}
+
 

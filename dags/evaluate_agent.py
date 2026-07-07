@@ -44,6 +44,8 @@ from src.pipeline.helpers import (
     prepare_run_dir,
     run_agent_batch,
     run_swebench_eval,
+    s3_destination_uri,
+    upload_run_to_s3,
 )
 
 
@@ -156,6 +158,8 @@ def evaluate_agent_dag():
         with open(metrics_path, "w") as f:
             json.dump(metrics, f, indent=2)
 
+        s3_uri = s3_destination_uri(run_id)
+
         manifest_path = run_dir / "manifest.json"
         if manifest_path.exists():
             with open(manifest_path) as f:
@@ -171,13 +175,14 @@ def evaluate_agent_dag():
                 "metrics": str(metrics_path),
                 "use_docker_operator": config.get("use_docker_operator", False),
                 "docker_image": config.get("docker_image"),
+                "s3_uri": s3_uri,
                 "finished_at": datetime.now().isoformat(),
             }
         )
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, indent=2)
 
-        log_mlflow_run(run_id, config, metrics, str(run_dir))
+        log_mlflow_run(run_id, config, metrics, str(run_dir), s3_uri=s3_uri)
 
         return {
             "run_id": run_id,
@@ -185,10 +190,42 @@ def evaluate_agent_dag():
             "metrics": metrics,
         }
 
+    @task(
+        retries=DEFAULT_RETRIES,
+        retry_delay=DEFAULT_RETRY_DELAY,
+        execution_timeout=DEFAULT_EXEC_TIMEOUT,
+    )
+    def upload_artifacts(summary_info, prepare_info):
+        """Upload the full run folder to object storage (skips if S3 is not configured)."""
+        run_dir = Path(summary_info["run_dir"])
+        run_id = prepare_info["run_id"]
+
+        result = upload_run_to_s3(run_dir, run_id)
+
+        manifest_path = run_dir / "manifest.json"
+        if manifest_path.exists():
+            with open(manifest_path) as f:
+                manifest = json.load(f)
+        else:
+            manifest = {"run_id": run_id}
+
+        manifest["s3_uri"] = result.get("s3_uri")
+        manifest["s3_uploaded"] = result.get("uploaded", False)
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2)
+
+        return {
+            "run_id": run_id,
+            "run_dir": str(run_dir),
+            "s3_uri": result.get("s3_uri"),
+            "uploaded": result.get("uploaded", False),
+        }
+
     prepare = prepare_run()
     agent = run_agent(prepare)
     evaluate = run_eval(agent, prepare)
-    summarize_and_log(evaluate, prepare)
+    summary = summarize_and_log(evaluate, prepare)
+    upload_artifacts(summary, prepare)
 
 if AIRFLOW_AVAILABLE:
     evaluate_agent_dag()
