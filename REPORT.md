@@ -56,9 +56,11 @@ Required `.env` values on a Linux VM:
 The scheduler runs `privileged` with the docker socket mounted so eval can start SWE-bench containers.
 Agent/eval call `.venv/bin/*` directly (more reliable than `uv run` in-container).
 
-## Object storage (S3)
+## Object storage (MinIO)
 
-`upload_artifacts` pushes the whole `runs/<run-id>/` folder to an S3-compatible bucket (e.g. Nebius Object Storage) and records the URI in `manifest.json` and as an MLflow `s3_uri` tag. It's optional: with `S3_BUCKET` empty the step skips cleanly, and any upload error is non-fatal since the local run folder is the source of truth. Configure via `.env`: `S3_BUCKET`, `S3_PREFIX`, `S3_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`.
+`upload_artifacts` pushes the whole `runs/<run-id>/` folder to a local MinIO bucket (S3-compatible) and records the URI in `manifest.json` and as an MLflow `s3_uri` tag. MinIO runs as its own compose service — API on `:9000`, console on `http://localhost:9001` (default login `minioadmin`/`minioadmin`). The upload uses path-style addressing and auto-creates the bucket on first run.
+
+It's optional: with `S3_BUCKET` empty the step skips cleanly, and any upload error is non-fatal since the local run folder is the source of truth. Configure via `.env`: `S3_BUCKET`, `S3_PREFIX`, `S3_ENDPOINT_URL` (`http://minio:9000`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, and `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`.
 
 ## Pending
 

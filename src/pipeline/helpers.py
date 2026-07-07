@@ -399,17 +399,32 @@ def upload_run_to_s3(run_dir: Path, run_id: str) -> dict[str, Any]:
 
     try:
         import boto3
+        from botocore.config import Config
     except ImportError:
         print("boto3 not installed; skipping S3 upload")
         return {"skipped": True, "uploaded": False, "s3_uri": None}
 
     prefix = os.environ.get("S3_PREFIX", "runs").strip("/")
     endpoint_url = os.environ.get("S3_ENDPOINT_URL") or None
+    region = os.environ.get("AWS_REGION") or None
     key_prefix = f"{prefix}/{run_id}" if prefix else run_id
     s3_uri = f"s3://{bucket}/{key_prefix}"
 
+    # path-style addressing is required for MinIO and works with other S3 backends too
+    client_config = Config(signature_version="s3v4", s3={"addressing_style": "path"})
+
     try:
-        client = boto3.session.Session().client("s3", endpoint_url=endpoint_url)
+        client = boto3.session.Session().client(
+            "s3", endpoint_url=endpoint_url, region_name=region, config=client_config
+        )
+
+        # make sure the bucket exists (handy for a fresh local MinIO)
+        try:
+            client.head_bucket(Bucket=bucket)
+        except Exception:
+            client.create_bucket(Bucket=bucket)
+            print(f"Created bucket {bucket}")
+
         uploaded = 0
         for path in sorted(run_dir.rglob("*")):
             if path.is_file():
